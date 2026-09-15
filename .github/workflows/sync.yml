@@ -1,0 +1,79 @@
+name: Tiden sync
+
+# Reusable workflow. A customer's repository calls it from an eight-line
+# .github/workflows/tiden.yml (see README) so every merge to their default
+# branch reaches Tiden and requirements follow the code.
+#
+# Two contracts this file must keep:
+#
+# 1. NOTHING HERE MAY FAIL THE CALLER'S BUILD. The job and every step are
+#    continue-on-error, and every failure path below exits 0 with a
+#    [tiden] line. A CI job that can break someone's pipeline is a CI job
+#    they delete.
+#
+# 2. THE CLI IS PINNED BY VERSION AND CHECKSUM, AS LITERALS. Both values live
+#    here, in a file the customer did not write, so replacing the release
+#    archive cannot change what runs. They are bumped only by this
+#    repository's bump workflow, through a reviewed pull request.
+#
+# The job needs no secret. It proves who it is with the OIDC token GitHub
+# signs for each run (the caller grants `id-token: write`); Tiden checks the
+# signature and the repository against what it was told to trust.
+
+on:
+  workflow_call:
+    inputs:
+      link-code:
+        description: >-
+          One-time code from Tiden that proves this repository was registered by
+          someone with access to it. Needed only until the first successful run;
+          harmless afterwards.
+        required: false
+        type: string
+        default: ""
+      base-url:
+        description: Tiden API base URL.
+        required: false
+        type: string
+        default: https://app.tiden.ai
+
+env:
+  TIDEN_VERSION: v0.18.0
+  TIDEN_SHA256: 36674780d777a62dd38cd43976f9c78ba543ed26f02268289210ee3566385fc2
+
+jobs:
+  sync:
+    name: Report the merge to Tiden
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        continue-on-error: true
+        with:
+          fetch-depth: 0
+
+      - name: Sync
+        continue-on-error: true
+        env:
+          TIDEN_BASE_URL: ${{ inputs.base-url }}
+          TIDEN_LINK_CODE: ${{ inputs.link-code }}
+        run: |
+          set -uo pipefail
+          # NOTHING HERE MAY FAIL THE BUILD: every failure is a skip, not an exit 1.
+          dir="${RUNNER_TEMP:-/tmp}/tiden-${TIDEN_VERSION}"
+          mkdir -p "${dir}" && cd "${dir}"
+          url="https://github.com/qase-tms/homebrew-tap/releases/download/${TIDEN_VERSION}/tiden_linux_amd64.tar.gz"
+          if ! curl -fsSL --retry 2 -o tiden.tar.gz "${url}"; then
+            echo "[tiden] could not download tiden ${TIDEN_VERSION} - skipping"; exit 0
+          fi
+          if ! echo "${TIDEN_SHA256}  tiden.tar.gz" | sha256sum -c - >/dev/null 2>&1; then
+            echo "[tiden] checksum mismatch for tiden ${TIDEN_VERSION} - refusing to run it - skipping"; exit 0
+          fi
+          if ! tar -xzf tiden.tar.gz tiden; then
+            echo "[tiden] could not unpack tiden ${TIDEN_VERSION} - skipping"; exit 0
+          fi
+          cd "${GITHUB_WORKSPACE}"
+          "${dir}/tiden" sync --format json || true

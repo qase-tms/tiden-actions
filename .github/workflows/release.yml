@@ -1,0 +1,68 @@
+name: Release
+
+# The only path that creates or moves tags in this repository.
+#
+# On a v*.*.* tag push: publish a GitHub release for it and move the `v1`
+# major tag to the same commit, so callers on `@v1` pick it up. Immutable
+# `v1.x.y` tags stay where they are for callers who pin.
+#
+# `bump` (manual): fetch the checksum of a tiden CLI release from the public
+# tap, rewrite the two literals in sync.yml, and open a pull request. The
+# default branch requires a review, so a bump lands only after a person has
+# read the diff.
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+  workflow_dispatch:
+    inputs:
+      tiden_version:
+        description: tiden CLI release tag on qase-tms/homebrew-tap (for example v0.18.1)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  bump:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Fetch the checksum and rewrite the literals
+        env:
+          V: ${{ inputs.tiden_version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sums="$(curl -fsSL "https://github.com/qase-tms/homebrew-tap/releases/download/${V}/checksums.txt")"
+          sha="$(printf '%s\n' "${sums}" | awk '$2 == "tiden_linux_amd64.tar.gz" { print $1 }')"
+          [ -n "${sha}" ] || { echo "no checksum for tiden_linux_amd64.tar.gz in ${V}"; exit 1; }
+          sed -i -E "s|^(  TIDEN_VERSION: ).*|\1${V}|; s|^(  TIDEN_SHA256: ).*|\1${sha}|" .github/workflows/sync.yml
+          git diff --quiet && { echo "already at ${V}"; exit 0; }
+          git config user.name "tiden-actions bump"
+          git config user.email "noreply@tiden.ai"
+          git checkout -b "bump/${V}"
+          git commit -am "Pin tiden ${V}"
+          git push -u origin "bump/${V}"
+          gh pr create --title "Pin tiden ${V}" --body "Checksum fetched from qase-tms/homebrew-tap release ${V}. Review the two literals in sync.yml, then merge and tag."
+
+  release:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Publish the release and move v1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          gh release create "${tag}" --title "${tag}" --generate-notes
+          major="v${tag#v}"; major="v${major%%.*}"
+          git tag -f "${major}" "${GITHUB_SHA}"
+          git push -f origin "refs/tags/${major}"
