@@ -40,6 +40,12 @@ The job and every step are `continue-on-error`. A missing download, a checksum m
 
 A pinned release of the `tiden` CLI, verified against a checksum written into `sync.yml` itself. Both values change only through a reviewed pull request in this repository. `v1` always points at the latest reviewed release; pin `v1.x.y` if you want the file to never change under you.
 
+## Releasing (maintainers)
+
+1. `Actions → Release → Run workflow` with the tiden CLI tag. It opens a pull request that rewrites the two literals in `sync.yml`.
+2. Review and merge it. Tag the merge commit `vX.Y.Z` and push the tag — only an organization admin can, by repository rule.
+3. The Release workflow publishes the GitHub release and prints the command that moves `v1` to it. Run it. Callers on `@v1` pick up the new pin on their next merge.
+
 ## Licence
 
 Apache-2.0.
