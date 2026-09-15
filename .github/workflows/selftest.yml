@@ -1,0 +1,31 @@
+name: Self-test
+
+# Proves the one contract every customer relies on: the reusable job never
+# fails the caller's build. This repository has no trust row in Tiden, so
+# `tiden sync` is refused on every run — and the job must still succeed.
+# Runs on every pull request, so a change to sync.yml that could turn a
+# refusal into a red build is caught here, not in a customer's pipeline.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  never-fails:
+    uses: ./.github/workflows/sync.yml
+
+  assert:
+    needs: never-fails
+    runs-on: ubuntu-latest
+    steps:
+      - name: The sync job must have succeeded even though Tiden refused it
+        env:
+          RESULT: ${{ needs.never-fails.result }}
+        run: |
+          echo "sync job result: ${RESULT}"
+          test "${RESULT}" = "success"
