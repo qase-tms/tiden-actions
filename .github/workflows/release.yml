@@ -10,8 +10,17 @@ name: Release
 #
 # `bump` (manual): fetch the checksum of a tiden CLI release from the public
 # tap, rewrite the two literals in sync.yml, and open a pull request. The
-# default branch requires a review, so a bump lands only after a person has
-# read the diff.
+# default branch takes changes only through a pull request, so a bump lands
+# only after a person has read the diff.
+#
+# GitHub refuses to let the workflow's own token push a change to a file
+# under .github/workflows/ ("without `workflows` permission" — a scope the
+# built-in token cannot be granted). When that refusal happens the job does
+# not fail: it prints the two verified literals and the commands, and a
+# maintainer opens the pull request from their machine. Nothing else is
+# entitled to write here — this repository holds no personal token and no
+# GitHub App key on purpose: what runs on customers' runners must not be
+# changeable by a leaked secret.
 
 on:
   push:
@@ -42,14 +51,24 @@ jobs:
           sums="$(curl -fsSL "https://github.com/qase-tms/homebrew-tap/releases/download/${V}/checksums.txt")"
           sha="$(printf '%s\n' "${sums}" | awk '$2 == "tiden_linux_amd64.tar.gz" { print $1 }')"
           [ -n "${sha}" ] || { echo "no checksum for tiden_linux_amd64.tar.gz in ${V}"; exit 1; }
+          # The literal is verified against the archive itself, not only read from checksums.txt.
+          curl -fsSL -o /tmp/tiden.tar.gz "https://github.com/qase-tms/homebrew-tap/releases/download/${V}/tiden_linux_amd64.tar.gz"
+          echo "${sha}  /tmp/tiden.tar.gz" | sha256sum -c - >/dev/null
           sed -i -E "s|^(  TIDEN_VERSION: ).*|\1${V}|; s|^(  TIDEN_SHA256: ).*|\1${sha}|" .github/workflows/sync.yml
           git diff --quiet && { echo "already at ${V}"; exit 0; }
           git config user.name "tiden-actions bump"
           git config user.email "noreply@tiden.ai"
           git checkout -b "bump/${V}"
           git commit -am "Pin tiden ${V}"
-          git push -u origin "bump/${V}"
-          gh pr create --title "Pin tiden ${V}" --body "Checksum fetched from qase-tms/homebrew-tap release ${V}. Review the two literals in sync.yml, then merge and tag."
+          if git push -u origin "bump/${V}" 2>/tmp/push.err; then
+            gh pr create --title "Pin tiden ${V}" --body "Checksum fetched from qase-tms/homebrew-tap release ${V} and verified against the archive. Review the two literals in sync.yml, then merge and tag."
+          else
+            cat /tmp/push.err
+            echo "::warning::GitHub refused the push (the workflow token may not write .github/workflows/). Verified literals for ${V}:"
+            echo "::warning::  TIDEN_VERSION: ${V}"
+            echo "::warning::  TIDEN_SHA256: ${sha}"
+            echo "::warning::A maintainer opens the pull request: git checkout -b bump/${V} && sed -i -E 's|^(  TIDEN_VERSION: ).*|\\1${V}|; s|^(  TIDEN_SHA256: ).*|\\1${sha}|' .github/workflows/sync.yml && git commit -am 'Pin tiden ${V}' && git push -u origin bump/${V} && gh pr create --fill"
+          fi
 
   release:
     if: github.event_name == 'push'
