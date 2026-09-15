@@ -2,9 +2,11 @@ name: Release
 
 # The only path that creates or moves tags in this repository.
 #
-# On a v*.*.* tag push: publish a GitHub release for it and move the `v1`
-# major tag to the same commit, so callers on `@v1` pick it up. Immutable
-# `v1.x.y` tags stay where they are for callers who pin.
+# On a v*.*.* tag push: publish a GitHub release for it. Tags matching v*
+# can be created or moved only by an organization admin (repository
+# ruleset), so the workflow does not touch `v1`: after the release, an admin
+# moves it with the command the release step prints. Immutable `v1.x.y`
+# tags stay where they are for callers who pin.
 #
 # `bump` (manual): fetch the checksum of a tiden CLI release from the public
 # tap, rewrite the two literals in sync.yml, and open a pull request. The
@@ -22,7 +24,7 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: write   # gh release create; bump pushes its branch
   pull-requests: write
 
 jobs:
@@ -56,7 +58,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - name: Publish the release and move v1
+      - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -64,5 +66,5 @@ jobs:
           tag="${GITHUB_REF_NAME}"
           gh release create "${tag}" --title "${tag}" --generate-notes
           major="v${tag#v}"; major="v${major%%.*}"
-          git tag -f "${major}" "${GITHUB_SHA}"
-          git push -f origin "refs/tags/${major}"
+          echo "::notice::Release ${tag} published. An organization admin now moves the major tag:"
+          echo "::notice::  git fetch --tags && git tag -f ${major} ${GITHUB_SHA} && git push -f origin refs/tags/${major}"
