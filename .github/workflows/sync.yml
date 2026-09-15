@@ -1,6 +1,6 @@
 name: Tiden sync
 
-# Reusable workflow. A customer's repository calls it from an eight-line
+# Reusable workflow. A customer's repository calls it from a ten-line
 # .github/workflows/tiden.yml (see README) so every merge to their default
 # branch reaches Tiden and requirements follow the code.
 #
