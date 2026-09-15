@@ -76,4 +76,4 @@ jobs:
             echo "[tiden] could not unpack tiden ${TIDEN_VERSION} - skipping"; exit 0
           fi
           cd "${GITHUB_WORKSPACE}"
-          "${dir}/tiden" sync --format json || true
+          "${dir}/tiden" sync --merge-sha "${GITHUB_SHA}" --format json || true
