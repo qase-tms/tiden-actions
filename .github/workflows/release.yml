@@ -1,89 +1,204 @@
 name: Release
 
-# The only path that creates or moves tags in this repository.
+# The only path that creates or moves tags in this repository, and the only
+# path that changes the two CLI literals in sync.yml. Nothing here needs a
+# person to start it; one person reviews the diff of every bump.
 #
-# On a v*.*.* tag push: publish a GitHub release for it. Tags matching v*
-# can be created or moved only by a maintainer (the `ai-control-plane` team) or an
-# organization owner (repository ruleset), so the workflow does not touch
-# `v1`: after the release, a maintainer moves it with the command the release
-# step prints. Immutable `v1.x.y` tags stay where they are for callers who pin.
+# The loop:
+#   1. `bump` (every 30 minutes, or on demand): if qase-tms/homebrew-tap has
+#      a newer tiden release than sync.yml pins, download its archive, verify
+#      it against the release's checksums.txt, rewrite TIDEN_VERSION and
+#      TIDEN_SHA256, push `bump/<tag>` and open a pull request. The default
+#      branch takes changes only through a pull request, so a bump lands only
+#      after a person has read the two literals.
+#   2. `tag` (push to main that changed TIDEN_VERSION): create the next
+#      immutable `v1.x.y` tag on the merge commit.
+#   3. `release` (that tag's push): publish the GitHub release and move `v1`
+#      to it. Callers on `@v1` pick up the pin on their next merge; callers
+#      pinned to `v1.x.y` never move.
 #
-# `bump` (manual): fetch the checksum of a tiden CLI release from the public
-# tap, rewrite the two literals in sync.yml, and open a pull request. The
-# default branch takes changes only through a pull request, so a bump lands
-# only after a person has read the diff.
-#
-# GitHub refuses to let the workflow's own token push a change to a file
-# under .github/workflows/ ("without `workflows` permission" — a scope the
-# built-in token cannot be granted). When that refusal happens the job does
-# not fail: it prints the two verified literals and the commands, and a
-# maintainer opens the pull request from their machine. Nothing else is
-# entitled to write here — this repository holds no personal token and no
-# GitHub App key on purpose: what runs on customers' runners must not be
-# changeable by a leaked secret.
+# Credentials. The workflow's built-in token may not push a change under
+# .github/workflows/ ("without `workflows` permission" — a scope it cannot be
+# granted) and may not create or move `v*` tags (repository ruleset). Steps
+# that need those rights mint a short-lived installation token for a
+# dedicated GitHub App owned by the organization and installed on this
+# repository only, from the Actions secrets TIDEN_ACTIONS_APP_ID and
+# TIDEN_ACTIONS_APP_PRIVATE_KEY; the App must be a bypass actor of the
+# `release tags` ruleset. No personal token is involved. When the secrets are
+# absent every such step degrades to printing the exact command for a
+# maintainer, and the run still succeeds.
 
 on:
-  push:
-    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+  schedule:
+    - cron: '17,47 * * * *'
   workflow_dispatch:
     inputs:
       tiden_version:
-        description: tiden CLI release tag on qase-tms/homebrew-tap (for example v0.18.1)
-        required: true
+        description: tiden CLI release tag on qase-tms/homebrew-tap (default — the latest release)
+        required: false
         type: string
+  push:
+    branches: [main]
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
 
 permissions:
-  contents: write   # gh release create; bump pushes its branch
+  contents: write
   pull-requests: write
+
+env:
+  TIDEN_ACTIONS_APP_ID: ${{ secrets.TIDEN_ACTIONS_APP_ID }}
 
 jobs:
   bump:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Fetch the checksum and rewrite the literals
+
+      - name: Resolve the release to pin
+        id: target
         env:
-          V: ${{ inputs.tiden_version }}
           GH_TOKEN: ${{ github.token }}
+          REQUESTED: ${{ inputs.tiden_version }}
         run: |
           set -euo pipefail
-          sums="$(curl -fsSL "https://github.com/qase-tms/homebrew-tap/releases/download/${V}/checksums.txt")"
+          if [ -n "${REQUESTED}" ]; then tag="${REQUESTED}"; else
+            tag="$(gh api repos/qase-tms/homebrew-tap/releases/latest --jq .tag_name)"
+          fi
+          current="$(awk '/^  TIDEN_VERSION: / { print $2 }' .github/workflows/sync.yml)"
+          echo "current=${current} target=${tag}"
+          if [ "${tag}" = "${current}" ]; then echo "already pinned"; echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if gh pr list --state open --head "bump/${tag}" --json number --jq 'length' | grep -qx 1; then
+            echo "bump/${tag} already has an open pull request"; echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify the archive and rewrite the literals
+        if: steps.target.outputs.skip != 'true'
+        env:
+          V: ${{ steps.target.outputs.tag }}
+        run: |
+          set -euo pipefail
+          base="https://github.com/qase-tms/homebrew-tap/releases/download/${V}"
+          sums="$(curl -fsSL "${base}/checksums.txt")"
           sha="$(printf '%s\n' "${sums}" | awk '$2 == "tiden_linux_amd64.tar.gz" { print $1 }')"
           [ -n "${sha}" ] || { echo "no checksum for tiden_linux_amd64.tar.gz in ${V}"; exit 1; }
-          # The literal is verified against the archive itself, not only read from checksums.txt.
-          curl -fsSL -o /tmp/tiden.tar.gz "https://github.com/qase-tms/homebrew-tap/releases/download/${V}/tiden_linux_amd64.tar.gz"
+          curl -fsSL -o /tmp/tiden.tar.gz "${base}/tiden_linux_amd64.tar.gz"
           echo "${sha}  /tmp/tiden.tar.gz" | sha256sum -c - >/dev/null
           sed -i -E "s|^(  TIDEN_VERSION: ).*|\1${V}|; s|^(  TIDEN_SHA256: ).*|\1${sha}|" .github/workflows/sync.yml
-          git diff --quiet && { echo "already at ${V}"; exit 0; }
           git config user.name "tiden-actions bump"
           git config user.email "noreply@tiden.ai"
           git checkout -b "bump/${V}"
-          git commit -am "Pin tiden ${V}"
+          git commit -am "Pin tiden ${V}" -m "sha256(tiden_linux_amd64.tar.gz) = ${sha}, verified against the archive and equal to the release's checksums.txt."
+          echo "SHA=${sha}" >> "$GITHUB_ENV"
+
+      - name: Mint the bot token
+        id: app
+        if: steps.target.outputs.skip != 'true' && env.TIDEN_ACTIONS_APP_ID != ''
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ secrets.TIDEN_ACTIONS_APP_ID }}
+          private-key: ${{ secrets.TIDEN_ACTIONS_APP_PRIVATE_KEY }}
+
+      - name: Open the pull request
+        if: steps.target.outputs.skip != 'true'
+        env:
+          V: ${{ steps.target.outputs.tag }}
+          GH_TOKEN: ${{ steps.app.outputs.token || github.token }}
+        run: |
+          set -uo pipefail
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           if git push -u origin "bump/${V}" 2>/tmp/push.err; then
-            gh pr create --title "Pin tiden ${V}" --body "Checksum fetched from qase-tms/homebrew-tap release ${V} and verified against the archive. Review the two literals in sync.yml, then merge and tag."
+            gh pr create --title "Pin tiden ${V}" \
+              --body "Pins the reusable job to tiden ${V}. \`TIDEN_SHA256: ${SHA}\` — verified against the downloaded archive and equal to the release's checksums.txt. Review the two literals, then merge: the merge tags the next \`v1.x.y\`, publishes it and moves \`v1\`."
           else
             cat /tmp/push.err
-            echo "::warning::GitHub refused the push (the workflow token may not write .github/workflows/). Verified literals for ${V}:"
+            echo "::warning::Could not push bump/${V} (no bot App configured, or its token was refused). Verified literals for ${V}:"
             echo "::warning::  TIDEN_VERSION: ${V}"
-            echo "::warning::  TIDEN_SHA256: ${sha}"
-            echo "::warning::A maintainer opens the pull request: git checkout -b bump/${V} && sed -i -E 's|^(  TIDEN_VERSION: ).*|\\1${V}|; s|^(  TIDEN_SHA256: ).*|\\1${sha}|' .github/workflows/sync.yml && git commit -am 'Pin tiden ${V}' && git push -u origin bump/${V} && gh pr create --fill"
+            echo "::warning::  TIDEN_SHA256: ${SHA}"
+            echo "::warning::A maintainer opens the pull request: git checkout -b bump/${V} && sed -i -E 's|^(  TIDEN_VERSION: ).*|\\1${V}|; s|^(  TIDEN_SHA256: ).*|\\1${SHA}|' .github/workflows/sync.yml && git commit -am 'Pin tiden ${V}' && git push -u origin bump/${V} && gh pr create --fill"
           fi
 
-  release:
-    if: github.event_name == 'push'
+  tag:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+
+      - name: Did this push change the pin?
+        id: pin
+        run: |
+          set -euo pipefail
+          if git diff "${{ github.event.before }}" "${{ github.sha }}" -- .github/workflows/sync.yml | grep -q '^+  TIDEN_VERSION: '; then
+            latest="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -1)"
+            [ -n "${latest}" ] || latest="v1.0.0"
+            IFS=. read -r major minor patch <<<"${latest#v}"
+            next="v${major}.${minor}.$((patch + 1))"
+            echo "pin changed: ${latest} → ${next}"
+            echo "next=${next}" >> "$GITHUB_OUTPUT"
+          else
+            echo "sync.yml's pin did not change in this push — nothing to tag"
+          fi
+
+      - name: Mint the bot token
+        id: app
+        if: steps.pin.outputs.next != '' && env.TIDEN_ACTIONS_APP_ID != ''
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ secrets.TIDEN_ACTIONS_APP_ID }}
+          private-key: ${{ secrets.TIDEN_ACTIONS_APP_PRIVATE_KEY }}
+
+      - name: Create the immutable tag
+        if: steps.pin.outputs.next != ''
+        env:
+          NEXT: ${{ steps.pin.outputs.next }}
+          GH_TOKEN: ${{ steps.app.outputs.token || github.token }}
+        run: |
+          set -uo pipefail
+          if gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" -f ref="refs/tags/${NEXT}" -f sha="${GITHUB_SHA}" >/dev/null 2>/tmp/tag.err; then
+            echo "tagged ${NEXT} at ${GITHUB_SHA}; the release job publishes it and moves v1"
+          else
+            cat /tmp/tag.err
+            echo "::warning::Could not create ${NEXT} (no bot App configured, or the App is not a bypass actor of the tag ruleset). A maintainer runs:"
+            echo "::warning::  git fetch --tags && git tag ${NEXT} ${GITHUB_SHA} && git push origin refs/tags/${NEXT}"
+          fi
+
+  release:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          gh release create "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" --generate-notes
+
+      - name: Mint the bot token
+        id: app
+        if: env.TIDEN_ACTIONS_APP_ID != ''
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ secrets.TIDEN_ACTIONS_APP_ID }}
+          private-key: ${{ secrets.TIDEN_ACTIONS_APP_PRIVATE_KEY }}
+
+      - name: Move the major tag
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token || github.token }}
+        run: |
+          set -uo pipefail
           tag="${GITHUB_REF_NAME}"
-          gh release create "${tag}" --title "${tag}" --generate-notes
           major="v${tag#v}"; major="v${major%%.*}"
-          echo "::notice::Release ${tag} published. A maintainer now moves the major tag:"
-          echo "::notice::  git fetch --tags && git tag -f ${major} ${GITHUB_SHA} && git push -f origin refs/tags/${major}"
+          if gh api -X PATCH "repos/${GITHUB_REPOSITORY}/git/refs/tags/${major}" -f sha="${GITHUB_SHA}" -F force=true >/dev/null 2>/tmp/move.err; then
+            echo "::notice::Release ${tag} published; ${major} now points at ${GITHUB_SHA}."
+          else
+            cat /tmp/move.err
+            echo "::warning::Release ${tag} published, but ${major} could not be moved (no bot App configured, or it is not a bypass actor of the tag ruleset). A maintainer runs:"
+            echo "::warning::  git fetch --tags && git tag -f ${major} ${GITHUB_SHA} && git push -f origin refs/tags/${major}"
+          fi
