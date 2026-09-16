@@ -38,8 +38,8 @@ on:
         default: https://app.tiden.ai
 
 env:
-  TIDEN_VERSION: v0.19.1
-  TIDEN_SHA256: 7bc99be930b7460706e44ebbc37b5d672a9ed88e639a516aed01a6e377468f87
+  TIDEN_VERSION: v0.19.2
+  TIDEN_SHA256: 07eae241a1e89a595f6d47ebeda2472bbbd7aa4d846e204d222001d385423f74
 
 jobs:
   sync:
