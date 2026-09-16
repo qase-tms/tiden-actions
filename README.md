@@ -42,9 +42,12 @@ A pinned release of the `tiden` CLI, verified against a checksum written into `s
 
 ## Releasing (maintainers)
 
-1. `Actions → Release → Run workflow` with the tiden CLI tag. It verifies the release's checksum against the archive and opens a pull request that rewrites the two literals in `sync.yml` — or, when GitHub refuses the workflow token a push to `.github/workflows/`, prints the verified literals and the commands for a maintainer to open that pull request.
-2. Review and merge it. Tag the merge commit `vX.Y.Z` and push the tag — only a maintainer (a member of the `ai-control-plane` team) or an organization owner can, by repository rule.
-3. The Release workflow publishes the GitHub release and prints the command that moves `v1` to it. Run it. Callers on `@v1` pick up the new pin on their next merge.
+Nobody starts a release by hand. Twice an hour the Release workflow compares the latest `tiden` release on `qase-tms/homebrew-tap` with the version `sync.yml` pins; when a newer one exists it downloads the archive, verifies it against the release's `checksums.txt`, and opens a pull request `bump/vX.Y.Z` that rewrites the two literals.
+
+1. Review the two literals in that pull request and merge it.
+2. The merge tags the next immutable `v1.x.y`, publishes the GitHub release and moves `v1` to it. Callers on `@v1` pick up the pin on their next merge; callers pinned to `v1.x.y` never move.
+
+Pushing a file under `.github/workflows/` and creating or moving `v*` tags is beyond the workflow's built-in token, so those steps use a dedicated GitHub App — owned by the organization, installed on this repository only, its id and private key in the Actions secrets `TIDEN_ACTIONS_APP_ID` and `TIDEN_ACTIONS_APP_PRIVATE_KEY`, and listed as a bypass actor of the `release tags` ruleset. No personal token is involved. Without the App every such step prints the exact command for a maintainer (a member of the `ai-control-plane` team, or an organization owner) and the run still succeeds.
 
 ## Licence
 
