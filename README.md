@@ -43,7 +43,7 @@ A pinned release of the `tiden` CLI, verified against a checksum written into `s
 ## Releasing (maintainers)
 
 1. `Actions → Release → Run workflow` with the tiden CLI tag. It verifies the release's checksum against the archive and opens a pull request that rewrites the two literals in `sync.yml` — or, when GitHub refuses the workflow token a push to `.github/workflows/`, prints the verified literals and the commands for a maintainer to open that pull request.
-2. Review and merge it. Tag the merge commit `vX.Y.Z` and push the tag — only an organization admin can, by repository rule.
+2. Review and merge it. Tag the merge commit `vX.Y.Z` and push the tag — only a maintainer (a member of the `ai-control-plane` team) or an organization owner can, by repository rule.
 3. The Release workflow publishes the GitHub release and prints the command that moves `v1` to it. Run it. Callers on `@v1` pick up the new pin on their next merge.
 
 ## Licence
