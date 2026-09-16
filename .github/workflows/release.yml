@@ -24,9 +24,10 @@ name: Release
 # dedicated GitHub App owned by the organization and installed on this
 # repository only, from the Actions secrets TIDEN_ACTIONS_APP_ID and
 # TIDEN_ACTIONS_APP_PRIVATE_KEY; the App must be a bypass actor of the
-# `release tags` ruleset. No personal token is involved. When the secrets are
-# absent every such step degrades to printing the exact command for a
-# maintainer, and the run still succeeds.
+# `release tags` ruleset. A fine-grained personal access token in the secret
+# TIDEN_ACTIONS_TOKEN is accepted instead (it wins when both exist). When no
+# credential is configured every such step degrades to printing the exact
+# command for a maintainer, and the run still succeeds.
 
 on:
   schedule:
@@ -47,6 +48,10 @@ permissions:
 
 env:
   TIDEN_ACTIONS_APP_ID: ${{ secrets.TIDEN_ACTIONS_APP_ID }}
+  # Alternative to the App: a fine-grained personal access token scoped to
+  # this repository (Contents RW, Pull requests RW, Workflows RW). Quicker to
+  # create, but it expires (a year at most) and carries one person's rights.
+  TIDEN_ACTIONS_TOKEN: ${{ secrets.TIDEN_ACTIONS_TOKEN }}
 
 jobs:
   bump:
@@ -94,7 +99,7 @@ jobs:
 
       - name: Mint the bot token
         id: app
-        if: steps.target.outputs.skip != 'true' && env.TIDEN_ACTIONS_APP_ID != ''
+        if: steps.target.outputs.skip != 'true' && env.TIDEN_ACTIONS_TOKEN == '' && env.TIDEN_ACTIONS_APP_ID != ''
         uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
         with:
           app-id: ${{ secrets.TIDEN_ACTIONS_APP_ID }}
@@ -104,7 +109,7 @@ jobs:
         if: steps.target.outputs.skip != 'true'
         env:
           V: ${{ steps.target.outputs.tag }}
-          GH_TOKEN: ${{ steps.app.outputs.token || github.token }}
+          GH_TOKEN: ${{ env.TIDEN_ACTIONS_TOKEN || steps.app.outputs.token || github.token }}
         run: |
           set -uo pipefail
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
@@ -113,7 +118,7 @@ jobs:
               --body "Pins the reusable job to tiden ${V}. \`TIDEN_SHA256: ${SHA}\` — verified against the downloaded archive and equal to the release's checksums.txt. Review the two literals, then merge: the merge tags the next \`v1.x.y\`, publishes it and moves \`v1\`."
           else
             cat /tmp/push.err
-            echo "::warning::Could not push bump/${V} (no bot App configured, or its token was refused). Verified literals for ${V}:"
+            echo "::warning::Could not push bump/${V} (no credential configured, or it was refused). Verified literals for ${V}:"
             echo "::warning::  TIDEN_VERSION: ${V}"
             echo "::warning::  TIDEN_SHA256: ${SHA}"
             echo "::warning::A maintainer opens the pull request: git checkout -b bump/${V} && sed -i -E 's|^(  TIDEN_VERSION: ).*|\\1${V}|; s|^(  TIDEN_SHA256: ).*|\\1${SHA}|' .github/workflows/sync.yml && git commit -am 'Pin tiden ${V}' && git push -u origin bump/${V} && gh pr create --fill"
@@ -144,7 +149,7 @@ jobs:
 
       - name: Mint the bot token
         id: app
-        if: steps.pin.outputs.next != '' && env.TIDEN_ACTIONS_APP_ID != ''
+        if: steps.pin.outputs.next != '' && env.TIDEN_ACTIONS_TOKEN == '' && env.TIDEN_ACTIONS_APP_ID != ''
         uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
         with:
           app-id: ${{ secrets.TIDEN_ACTIONS_APP_ID }}
@@ -154,14 +159,14 @@ jobs:
         if: steps.pin.outputs.next != ''
         env:
           NEXT: ${{ steps.pin.outputs.next }}
-          GH_TOKEN: ${{ steps.app.outputs.token || github.token }}
+          GH_TOKEN: ${{ env.TIDEN_ACTIONS_TOKEN || steps.app.outputs.token || github.token }}
         run: |
           set -uo pipefail
           if gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" -f ref="refs/tags/${NEXT}" -f sha="${GITHUB_SHA}" >/dev/null 2>/tmp/tag.err; then
             echo "tagged ${NEXT} at ${GITHUB_SHA}; the release job publishes it and moves v1"
           else
             cat /tmp/tag.err
-            echo "::warning::Could not create ${NEXT} (no bot App configured, or the App is not a bypass actor of the tag ruleset). A maintainer runs:"
+            echo "::warning::Could not create ${NEXT} (no credential configured, or it is not a bypass actor of the tag ruleset). A maintainer runs:"
             echo "::warning::  git fetch --tags && git tag ${NEXT} ${GITHUB_SHA} && git push origin refs/tags/${NEXT}"
           fi
 
@@ -182,7 +187,7 @@ jobs:
 
       - name: Mint the bot token
         id: app
-        if: env.TIDEN_ACTIONS_APP_ID != ''
+        if: env.TIDEN_ACTIONS_TOKEN == '' && env.TIDEN_ACTIONS_APP_ID != ''
         uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
         with:
           app-id: ${{ secrets.TIDEN_ACTIONS_APP_ID }}
@@ -190,7 +195,7 @@ jobs:
 
       - name: Move the major tag
         env:
-          GH_TOKEN: ${{ steps.app.outputs.token || github.token }}
+          GH_TOKEN: ${{ env.TIDEN_ACTIONS_TOKEN || steps.app.outputs.token || github.token }}
         run: |
           set -uo pipefail
           tag="${GITHUB_REF_NAME}"
@@ -199,6 +204,6 @@ jobs:
             echo "::notice::Release ${tag} published; ${major} now points at ${GITHUB_SHA}."
           else
             cat /tmp/move.err
-            echo "::warning::Release ${tag} published, but ${major} could not be moved (no bot App configured, or it is not a bypass actor of the tag ruleset). A maintainer runs:"
+            echo "::warning::Release ${tag} published, but ${major} could not be moved (no credential configured, or it is not a bypass actor of the tag ruleset). A maintainer runs:"
             echo "::warning::  git fetch --tags && git tag -f ${major} ${GITHUB_SHA} && git push -f origin refs/tags/${major}"
           fi

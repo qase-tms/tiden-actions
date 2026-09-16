@@ -47,7 +47,7 @@ Nobody starts a release by hand. Twice an hour the Release workflow compares the
 1. Review the two literals in that pull request and merge it.
 2. The merge tags the next immutable `v1.x.y`, publishes the GitHub release and moves `v1` to it. Callers on `@v1` pick up the pin on their next merge; callers pinned to `v1.x.y` never move.
 
-Pushing a file under `.github/workflows/` and creating or moving `v*` tags is beyond the workflow's built-in token, so those steps use a dedicated GitHub App — owned by the organization, installed on this repository only, its id and private key in the Actions secrets `TIDEN_ACTIONS_APP_ID` and `TIDEN_ACTIONS_APP_PRIVATE_KEY`, and listed as a bypass actor of the `release tags` ruleset. No personal token is involved. Without the App every such step prints the exact command for a maintainer (a member of the `ai-control-plane` team, or an organization owner) and the run still succeeds.
+Pushing a file under `.github/workflows/` and creating or moving `v*` tags is beyond the workflow's built-in token, so those steps need one credential, configured once as an Actions secret — either a dedicated GitHub App (owned by the organization, installed on this repository only; `TIDEN_ACTIONS_APP_ID` + `TIDEN_ACTIONS_APP_PRIVATE_KEY`; listed as a bypass actor of the `release tags` ruleset) or a fine-grained personal access token scoped to this repository with Contents, Pull requests and Workflows read-and-write (`TIDEN_ACTIONS_TOKEN`; its owner must already be allowed to tag). Without either, every such step prints the exact command for a maintainer (a member of the `ai-control-plane` team, or an organization owner) and the run still succeeds.
 
 ## Licence
 
