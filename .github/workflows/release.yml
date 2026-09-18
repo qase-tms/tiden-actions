@@ -29,8 +29,6 @@ name: Release
 # maintainer, and the run still succeeds.
 
 on:
-  schedule:
-    - cron: '17,47 * * * *'
   workflow_dispatch:
     inputs:
       tiden_version:
