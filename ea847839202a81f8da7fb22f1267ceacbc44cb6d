@@ -1,0 +1,14 @@
+.github/workflows/sync.yml
+  h_76de3a8b607fd6 41-42
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ea847839202a81f8da7fb22f1267ceacbc44cb6d",
+  "prompts": {},
+  "humans": {
+    "h_76de3a8b607fd6": {
+      "author": "Nikolay Pisarev <npisarev@qase.io>"
+    }
+  }
+}

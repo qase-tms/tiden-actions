@@ -1,0 +1,21 @@
+.github/workflows/release.yml
+  s_7cdc57d73a9f74::t_bc9c7dd2a0c7aa 27-30,51-54,102,112,121,152,162,169,190,198,207
+README.md
+  s_7cdc57d73a9f74::t_c8240270c5da00 50
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a9f031ed19f6302e86b1770b05286e46a5a95b3b",
+  "prompts": {},
+  "sessions": {
+    "s_7cdc57d73a9f74": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ba87ef5d-cab2-4b76-8a60-1a81e00e313d",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Nikolay Pisarev <npisarev@qase.io>"
+    }
+  }
+}

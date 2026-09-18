@@ -1,0 +1,16 @@
+.github/workflows/release.yml
+  h_76de3a8b607fd6 6-9,88
+README.md
+  h_76de3a8b607fd6 46
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "335c60a67b74476c422b7b65dae555fdd6983117",
+  "prompts": {},
+  "humans": {
+    "h_76de3a8b607fd6": {
+      "author": "Nikolay Pisarev <npisarev@qase.io>"
+    }
+  }
+}
