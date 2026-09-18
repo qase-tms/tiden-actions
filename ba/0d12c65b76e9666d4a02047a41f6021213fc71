@@ -1,0 +1,19 @@
+README.md
+  s_af57654c548b1e::t_f150cf2a4f3628 3,5,7,9,11,13-14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ba0d12c65b76e9666d4a02047a41f6021213fc71",
+  "prompts": {},
+  "sessions": {
+    "s_af57654c548b1e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1a2c628f-c777-4e62-bc1b-4ab354835ab5",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Nikolay Pisarev <npisarev@qase.io>"
+    }
+  }
+}
